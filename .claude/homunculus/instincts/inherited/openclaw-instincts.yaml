@@ -1,0 +1,687 @@
+# Instincts generated from https://github.com/sha7dowXX/openclaw
+# Generated: 2026-05-06T15:52:32.166Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: openclaw-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: test, perf, fix, tests
+
+## Evidence
+
+- 100 commits analyzed
+- Detected conventional commit pattern
+- Examples: test: narrow channels command test imports, fix: pass message routing context to send actions
+
+---
+id: openclaw-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Commit Length
+
+## Action
+
+Keep commit messages concise (~43 characters)
+
+## Evidence
+
+- Average commit message length: 43 chars
+- Based on 100 commits
+
+---
+id: openclaw-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: openclaw-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: openclaw-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: openclaw-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: commands, agents, infra, flows, plugin-sdk
+
+---
+id: openclaw-test-colocate
+trigger: "when writing tests"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Test Colocate
+
+## Action
+
+Place test file next to the source file (e.g., Button.test.tsx next to Button.tsx)
+
+## Evidence
+
+- Colocated test pattern detected
+- Tests live alongside source files
+
+---
+id: openclaw-test-framework
+trigger: "when writing tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Test Framework
+
+## Action
+
+Use vitest as the test framework
+
+## Evidence
+
+- Test framework detected: vitest
+- File pattern: *.test.ts
+
+---
+id: openclaw-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: openclaw-test-mocking
+trigger: "when mocking dependencies in tests"
+confidence: 0.75
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Test Mocking
+
+## Action
+
+Use vi.mock for mocking
+
+## Evidence
+
+- Mocking pattern detected: vi.mock
+- Consistent across test files
+
+---
+id: openclaw-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Test Types
+
+## Action
+
+Write unit, integration tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration
+- Coverage config: yes
+
+---
+id: openclaw-workflow-refine-or-add-test-coverage-for-command-or-feature
+trigger: "when doing refine or add test coverage for command or feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Workflow Refine Or Add Test Coverage For Command Or Feature
+
+## Action
+
+Follow the refine-or-add-test-coverage-for-command-or-feature workflow:
+1. Identify command or feature needing test refinement or coverage.
+2. Edit or create corresponding test files (often in src/commands/ or src/agents/).
+3. Adjust mocks, fixtures, or test imports as needed.
+4. Sometimes move or split test cases between files for isolation.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~10x per month
+- Files: src/commands/*.test.ts, src/commands/*/*.test.ts, src/commands/*/*.ts
+
+---
+id: openclaw-workflow-merge-or-trim-duplicate-test-cases
+trigger: "when doing merge or trim duplicate test cases"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Workflow Merge Or Trim Duplicate Test Cases
+
+## Action
+
+Follow the merge-or-trim-duplicate-test-cases workflow:
+1. Identify duplicate or overlapping test cases (e.g., onboarding, auth-choice).
+2. Edit or remove redundant test files or cases.
+3. Merge unique cases into a single file or suite.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: src/commands/onboard-non-interactive.provider-auth.test.ts, src/commands/auth-choice.test.ts, src/commands/onboard-non-interactive.gateway.test.ts
+
+---
+id: openclaw-workflow-extension-test-and-implementation-optimization
+trigger: "when doing extension test and implementation optimization"
+confidence: 0.8
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Workflow Extension Test And Implementation Optimization
+
+## Action
+
+Follow the extension-test-and-implementation-optimization workflow:
+1. Identify extension or plugin needing optimization.
+2. Edit multiple test and implementation files within the extension's directory.
+3. Narrow imports, remove unnecessary waits, or optimize test boundaries.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~6x per month
+- Files: extensions/*/src/*.ts, extensions/*/src/*.test.ts, extensions/*/src/**/*.ts
+
+---
+id: openclaw-workflow-core-command-or-agent-hotspot-reduction
+trigger: "when doing core command or agent hotspot reduction"
+confidence: 0.65
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Workflow Core Command Or Agent Hotspot Reduction
+
+## Action
+
+Follow the core-command-or-agent-hotspot-reduction workflow:
+1. Identify hotspot in core command or agent logic.
+2. Edit both implementation and test files to refactor, split, or optimize.
+3. Sometimes move logic between files or isolate responsibilities.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~3x per month
+- Files: src/commands/*.ts, src/commands/*.test.ts, src/agents/*.ts
+
+---
+id: openclaw-workflow-plugin-sdk-surface-or-import-refinement
+trigger: "when doing plugin sdk surface or import refinement"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/sha7dowXX/openclaw
+---
+
+# Openclaw Workflow Plugin Sdk Surface Or Import Refinement
+
+## Action
+
+Follow the plugin-sdk-surface-or-import-refinement workflow:
+1. Edit plugin SDK implementation files to narrow or clarify exports.
+2. Update related documentation and scripts.
+3. Regenerate or update SDK API baselines as needed.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/plugin-sdk/*.ts, scripts/lib/plugin-sdk-*.json, docs/plugins/*.md
+
+---
+id: openclaw-instinct-file-naming-camelcase
+trigger: "When creating or renaming a file in the codebase"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct File Naming Camelcase
+
+## Action
+
+Use camelCase for file names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files
+- Consistent naming in src/ and extensions/ folders
+
+---
+id: openclaw-instinct-function-naming-camelcase
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Function Naming Camelcase
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+- Function definitions in TypeScript files
+
+---
+id: openclaw-instinct-class-naming-pascalcase
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Class Naming Pascalcase
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+- Class definitions in TypeScript files
+
+---
+id: openclaw-instinct-constant-naming-screaming-snake
+trigger: "When declaring a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Constant Naming Screaming Snake
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: openclaw-instinct-import-style-relative
+trigger: "When importing modules within the project"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Import Style Relative
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+- Imports in src/ and extensions/
+
+---
+id: openclaw-instinct-export-style-named
+trigger: "When exporting functions, classes, or constants"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Export Style Named
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+- Export statements in TypeScript files
+
+---
+id: openclaw-instinct-test-file-pattern
+trigger: "When creating a test file"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Test File Pattern
+
+## Action
+
+Name the file with the pattern *.test.ts
+
+## Evidence
+
+- Pattern in testing.filePattern
+- Test files in src/ and extensions/
+
+---
+id: openclaw-instinct-test-framework-vitest
+trigger: "When writing or updating tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Test Framework Vitest
+
+## Action
+
+Use the Vitest framework and vi.mock for mocking
+
+## Evidence
+
+- Pattern in testing.framework
+- Use of vi.mock in test files
+
+---
+id: openclaw-instinct-colocated-tests
+trigger: "When adding tests for a module"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Colocated Tests
+
+## Action
+
+Place test files next to the implementation (colocated)
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation
+- src/commands/*.test.ts next to *.ts
+
+---
+id: openclaw-instinct-test-type-unit-integration
+trigger: "When deciding on test types"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Test Type Unit Integration
+
+## Action
+
+Write both unit and integration tests as appropriate
+
+## Evidence
+
+- Pattern in testing.testTypes
+- Presence of both unit and integration test files
+
+---
+id: openclaw-instinct-conventional-commit-prefix
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Conventional Commit Prefix
+
+## Action
+
+Start the commit message with a conventional prefix (e.g., test:, fix:, perf:, Tests:)
+
+## Evidence
+
+- Pattern in commits.prefixes
+- Seen in commit messages: 'test: ...', 'fix: ...', 'perf: ...'
+
+---
+id: openclaw-instinct-commit-length-clarity
+trigger: "When composing a commit message"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Commit Length Clarity
+
+## Action
+
+Keep the commit message concise (~43 characters on average) and focused
+
+## Evidence
+
+- Pattern in commits.averageLength
+- Commit message examples
+
+---
+id: openclaw-instinct-refine-or-add-test-coverage
+trigger: "When someone wants to improve, isolate, or expand test coverage for a command or feature"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Refine Or Add Test Coverage
+
+## Action
+
+Edit or create test files for the relevant command/feature, adjust mocks/fixtures, and split/move cases for isolation as needed
+
+## Evidence
+
+- Workflow 'refine-or-add-test-coverage-for-command-or-feature'
+- Frequent commits editing src/commands/*.test.ts and src/agents/*.test.ts
+
+---
+id: openclaw-instinct-merge-or-trim-duplicate-tests
+trigger: "When someone wants to reduce redundant test coverage or consolidate similar tests"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Merge Or Trim Duplicate Tests
+
+## Action
+
+Identify and merge or remove duplicate/overlapping test cases, consolidating unique cases into a single suite
+
+## Evidence
+
+- Workflow 'merge-or-trim-duplicate-test-cases'
+- Commits editing/removing overlapping test files
+
+---
+id: openclaw-instinct-extension-test-optimization
+trigger: "When someone wants to improve performance or maintainability of extension tests or runtime"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Extension Test Optimization
+
+## Action
+
+Edit extension test and implementation files to narrow imports, remove unnecessary waits, or optimize test boundaries
+
+## Evidence
+
+- Workflow 'extension-test-and-implementation-optimization'
+- Commits optimizing extensions/*/src/*.ts and *.test.ts
+
+---
+id: openclaw-instinct-core-hotspot-reduction
+trigger: "When someone wants to reduce complexity or improve maintainability in core command/agent code"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Core Hotspot Reduction
+
+## Action
+
+Refactor, split, or optimize core command/agent implementation and test files, sometimes moving logic between files
+
+## Evidence
+
+- Workflow 'core-command-or-agent-hotspot-reduction'
+- Commits refactoring src/commands/*.ts and src/agents/*.ts
+
+---
+id: openclaw-instinct-plugin-sdk-surface-refinement
+trigger: "When someone wants to optimize or clarify the plugin SDK's API surface"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: sha7dowXX/openclaw
+---
+
+# Openclaw Instinct Plugin Sdk Surface Refinement
+
+## Action
+
+Edit plugin SDK files to narrow/clarify exports, update docs/scripts, and regenerate SDK API baselines
+
+## Evidence
+
+- Workflow 'plugin-sdk-surface-or-import-refinement'
+- Commits editing src/plugin-sdk/*.ts and docs/plugins/*.md
+
