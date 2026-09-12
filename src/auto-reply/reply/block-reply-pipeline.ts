@@ -1,24 +1,50 @@
-import type { ReplyPayload } from "../types.js";
-import type { BlockStreamingCoalescing } from "./block-streaming.js";
+// Buffers streaming reply blocks before coalesced final delivery.
+import { clampPositiveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
+import {
+  hasOutboundReplyContent,
+  resolveSendableOutboundReplyParts,
+} from "openclaw/plugin-sdk/reply-payload";
 import { logVerbose } from "../../globals.js";
+import { runAbortableTimeout } from "../../node-host/with-timeout.js";
+import {
+  copyReplyPayloadMetadata,
+  getReplyPayloadMetadata,
+  isReplyPayloadStatusNotice,
+  isReplyPayloadTerminalContent,
+} from "../reply-payload.js";
+import type { ReplyPayload } from "../types.js";
 import { createBlockReplyCoalescer } from "./block-reply-coalescer.js";
+import { deliverBlockReply, hasBlockReplyDeliveryCustody } from "./block-reply-delivery.js";
+import type { BlockStreamingCoalescing } from "./block-streaming.js";
+import { resolveReplyDispatchErrorOutcome } from "./reply-dispatch-outcome.js";
 
+/** Streaming block reply pipeline that tracks sent content and media. */
 export type BlockReplyPipeline = {
   enqueue: (payload: ReplyPayload) => void;
   flush: (options?: { force?: boolean }) => Promise<void>;
   stop: () => void;
   hasBuffered: () => boolean;
   didStream: () => boolean;
+  /** True only after a final-answer lane payload is sent. */
+  didStreamTerminalReply?: () => boolean;
   isAborted: () => boolean;
   hasSentPayload: (payload: ReplyPayload) => boolean;
+  hasSentExactPayload?: (payload: ReplyPayload) => boolean;
+  isFinalPayloadRetryBlocked?: (payload: ReplyPayload) => boolean;
+  getSentMediaUrls: () => readonly string[];
+  getRetryBlockedMediaUrls?: () => readonly string[];
+  hasRetryBlockedTerminalDelivery?: () => boolean;
+  hasRetryBlockedDelivery: () => boolean;
 };
 
-export type BlockReplyBuffer = {
+/** Optional buffering strategy used before payloads enter block delivery. */
+type BlockReplyBuffer = {
   shouldBuffer: (payload: ReplyPayload) => boolean;
   onEnqueue?: (payload: ReplyPayload) => void;
   finalize?: (payload: ReplyPayload) => ReplyPayload;
 };
 
+/** Buffers audio payloads so final delivery can preserve voice presentation. */
 export function createAudioAsVoiceBuffer(params: {
   isAudioPayload: (payload: ReplyPayload) => boolean;
 }): BlockReplyBuffer {
@@ -30,45 +56,60 @@ export function createAudioAsVoiceBuffer(params: {
       }
     },
     shouldBuffer: (payload) => params.isAudioPayload(payload),
-    finalize: (payload) => (seenAudioAsVoice ? { ...payload, audioAsVoice: true } : payload),
+    finalize: (payload) =>
+      seenAudioAsVoice
+        ? copyReplyPayloadMetadata(payload, { ...payload, audioAsVoice: true })
+        : payload,
   };
 }
 
-export function createBlockReplyPayloadKey(payload: ReplyPayload): string {
-  const text = payload.text?.trim() ?? "";
-  const mediaList = payload.mediaUrls?.length
-    ? payload.mediaUrls
-    : payload.mediaUrl
-      ? [payload.mediaUrl]
-      : [];
+function createBlockReplyContentIdentity(payload: ReplyPayload) {
+  const reply = resolveSendableOutboundReplyParts(payload);
+  return {
+    text: reply.trimmedText,
+    mediaList: reply.mediaUrls,
+    presentation: payload.presentation ?? null,
+    presentationTextMode: payload.presentationTextMode ?? null,
+    interactive: payload.interactive ?? null,
+    channelData: payload.channelData ?? null,
+    location: payload.location ?? null,
+    videoAsNote: payload.videoAsNote === true,
+  };
+}
+
+/** Creates a stable duplicate key for a complete outbound payload. */
+function createBlockReplyPayloadKey(payload: ReplyPayload): string {
   return JSON.stringify({
-    text,
-    mediaList,
+    ...createBlockReplyContentIdentity(payload),
+    statusNotice: isReplyPayloadStatusNotice(payload),
+    reasoning: payload.isReasoning === true,
+    commentary: payload.isCommentary === true,
+    assistantMessageIndex: getReplyPayloadMetadata(payload)?.assistantMessageIndex ?? null,
     replyToId: payload.replyToId ?? null,
   });
 }
 
-const withTimeout = async <T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutError: Error,
-): Promise<T> => {
-  if (!timeoutMs || timeoutMs <= 0) {
-    return promise;
-  }
-  let timer: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(timeoutError), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-};
+/** Creates a duplicate key that ignores reply target for final suppression. */
+export function createBlockReplyContentKey(payload: ReplyPayload): string {
+  // Content-only key used for final-payload suppression after block streaming.
+  // This intentionally ignores replyToId so a streamed threaded payload and the
+  // later final payload still collapse when they carry the same content.
+  return JSON.stringify(createBlockReplyContentIdentity(payload));
+}
 
+function createIndexedBlockReplyContentKey(payload: ReplyPayload): string {
+  const contentKey = createBlockReplyContentKey(payload);
+  const assistantMessageIndex = getReplyPayloadMetadata(payload)?.assistantMessageIndex;
+  return assistantMessageIndex === undefined
+    ? contentKey
+    : `${assistantMessageIndex}:${contentKey}`;
+}
+
+function resolveBlockReplyTimeoutMs(timeoutMs: number): number {
+  return clampPositiveTimerTimeoutMs(timeoutMs) ?? 0;
+}
+
+/** Creates the ordered block reply delivery pipeline for streamed payloads. */
 export function createBlockReplyPipeline(params: {
   onBlockReply: (
     payload: ReplyPayload,
@@ -78,24 +119,44 @@ export function createBlockReplyPipeline(params: {
   coalescing?: BlockStreamingCoalescing;
   buffer?: BlockReplyBuffer;
 }): BlockReplyPipeline {
-  const { onBlockReply, timeoutMs, coalescing, buffer } = params;
+  const { onBlockReply, coalescing, buffer } = params;
+  const timeoutMs = resolveBlockReplyTimeoutMs(params.timeoutMs);
   const sentKeys = new Set<string>();
+  const sentContentKeys = new Set<string>();
+  const sentMediaUrls = new Set<string>();
   const pendingKeys = new Set<string>();
   const seenKeys = new Set<string>();
-  const bufferedKeys = new Set<string>();
-  const bufferedPayloadKeys = new Set<string>();
   const bufferedPayloads: ReplyPayload[] = [];
+  type BlockAttempt = Awaited<ReturnType<typeof deliverBlockReply>> & {
+    source: string;
+    contentKey: string;
+    mediaUrls: readonly string[];
+    terminal: boolean;
+  };
+  const blockAttemptsByMessage = new Map<number | undefined, BlockAttempt[]>();
+  let bufferedAssistantMessageIndex: number | undefined;
   let sendChain: Promise<void> = Promise.resolve();
   let aborted = false;
   let didStream = false;
+  let didStreamTerminalReply = false;
   let didLogTimeout = false;
 
-  const sendPayload = (payload: ReplyPayload, skipSeen?: boolean) => {
+  const hasSeenOrQueuedPayloadKey = (payloadKey: string) =>
+    seenKeys.has(payloadKey) || sentKeys.has(payloadKey) || pendingKeys.has(payloadKey);
+
+  const flushBufferedAssistantBlock = () => {
+    bufferedAssistantMessageIndex = undefined;
+    void coalescer?.flush({ force: true });
+  };
+
+  const sendPayload = (payload: ReplyPayload, bypassSeenCheck = false) => {
     if (aborted) {
       return;
     }
     const payloadKey = createBlockReplyPayloadKey(payload);
-    if (!skipSeen) {
+    const contentKey = createBlockReplyContentKey(payload);
+    const blockSourceText = getReplyPayloadMetadata(payload)?.blockSourceText;
+    if (!bypassSeenCheck) {
       if (seenKeys.has(payloadKey)) {
         return;
       }
@@ -105,34 +166,70 @@ export function createBlockReplyPipeline(params: {
       return;
     }
     pendingKeys.add(payloadKey);
+    const isTerminalContent = isReplyPayloadTerminalContent(payload);
+    const reply = resolveSendableOutboundReplyParts(payload);
+    const attempt: BlockAttempt = {
+      outcome: "cancelled",
+      source: blockSourceText ?? reply.trimmedText,
+      contentKey,
+      mediaUrls: reply.mediaUrls,
+      terminal: isTerminalContent,
+    };
+    const index = getReplyPayloadMetadata(payload)?.assistantMessageIndex;
+    const attempts = blockAttemptsByMessage.get(index) ?? [];
+    attempts.push(attempt);
+    blockAttemptsByMessage.set(index, attempts);
 
-    const timeoutError = new Error(`block reply delivery timed out after ${timeoutMs}ms`);
-    const abortController = new AbortController();
+    // Preserve outbound order by chaining sends; abort after timeout to avoid stale blocks.
+    const fallbackAbortController = new AbortController();
+    let timeoutSignal: AbortSignal | undefined;
     sendChain = sendChain
       .then(async () => {
         if (aborted) {
           return false;
         }
-        await withTimeout(
-          onBlockReply(payload, {
-            abortSignal: abortController.signal,
-            timeoutMs,
-          }) ?? Promise.resolve(),
-          timeoutMs,
-          timeoutError,
+        attempt.outcome = "failed-deliver";
+        attempt.pending = true;
+        return await runAbortableTimeout(
+          async (signal) => {
+            timeoutSignal = signal;
+            return await deliverBlockReply(() =>
+              onBlockReply(payload, {
+                abortSignal: signal ?? fallbackAbortController.signal,
+                timeoutMs,
+              }),
+            );
+          },
+          timeoutMs || undefined,
+          "block reply delivery",
         );
-        return true;
       })
-      .then((didSend) => {
-        if (!didSend) {
+      .then((delivery) => {
+        if (!delivery) {
+          return;
+        }
+        Object.assign(attempt, delivery, { pending: delivery.pending === true });
+        const isStatusNotice = isReplyPayloadStatusNotice(payload);
+        if (delivery.outcome !== "delivered" || delivery.pending) {
           return;
         }
         sentKeys.add(payloadKey);
-        didStream = true;
+        if (isTerminalContent) {
+          sentContentKeys.add(contentKey);
+          sentContentKeys.add(createIndexedBlockReplyContentKey(payload));
+        }
+        for (const mediaUrl of reply.mediaUrls) {
+          sentMediaUrls.add(mediaUrl);
+        }
+        if (!isStatusNotice) {
+          didStream = true;
+          if (isTerminalContent && hasOutboundReplyContent(payload, { trimText: true })) {
+            didStreamTerminalReply = true;
+          }
+        }
       })
-      .catch((err) => {
-        if (err === timeoutError) {
-          abortController.abort();
+      .catch((err: unknown) => {
+        if (timeoutSignal?.aborted) {
           aborted = true;
           if (!didLogTimeout) {
             didLogTimeout = true;
@@ -142,6 +239,8 @@ export function createBlockReplyPipeline(params: {
           }
           return;
         }
+        attempt.outcome = resolveReplyDispatchErrorOutcome(err);
+        attempt.pending = false;
         logVerbose(`block reply delivery failed: ${String(err)}`);
       })
       .finally(() => {
@@ -154,8 +253,8 @@ export function createBlockReplyPipeline(params: {
         config: coalescing,
         shouldAbort: () => aborted,
         onFlush: (payload) => {
-          bufferedKeys.clear();
-          sendPayload(payload);
+          bufferedAssistantMessageIndex = undefined;
+          sendPayload(payload, /* bypassSeenCheck */ true);
         },
       })
     : null;
@@ -166,16 +265,10 @@ export function createBlockReplyPipeline(params: {
       return false;
     }
     const payloadKey = createBlockReplyPayloadKey(payload);
-    if (
-      seenKeys.has(payloadKey) ||
-      sentKeys.has(payloadKey) ||
-      pendingKeys.has(payloadKey) ||
-      bufferedPayloadKeys.has(payloadKey)
-    ) {
+    if (hasSeenOrQueuedPayloadKey(payloadKey)) {
       return true;
     }
     seenKeys.add(payloadKey);
-    bufferedPayloadKeys.add(payloadKey);
     bufferedPayloads.push(payload);
     return true;
   };
@@ -186,10 +279,34 @@ export function createBlockReplyPipeline(params: {
     }
     for (const payload of bufferedPayloads) {
       const finalPayload = buffer?.finalize?.(payload) ?? payload;
-      sendPayload(finalPayload, true);
+      sendPayload(finalPayload, /* bypassSeenCheck */ true);
     }
     bufferedPayloads.length = 0;
-    bufferedPayloadKeys.clear();
+  };
+
+  const enqueueCoalescedPayload = (payload: ReplyPayload) => {
+    if (!coalescer) {
+      return;
+    }
+    const assistantMessageIndex = getReplyPayloadMetadata(payload)?.assistantMessageIndex;
+    if (
+      assistantMessageIndex !== undefined &&
+      bufferedAssistantMessageIndex !== undefined &&
+      assistantMessageIndex !== bufferedAssistantMessageIndex &&
+      coalescer.hasBuffered()
+    ) {
+      // Logical assistant blocks must not be merged together by the generic
+      // coalescer. Force-flush the previous buffered block before starting a
+      // new assistant-message block.
+      flushBufferedAssistantBlock();
+    }
+    const payloadKey = createBlockReplyPayloadKey(payload);
+    if (hasSeenOrQueuedPayloadKey(payloadKey)) {
+      return;
+    }
+    seenKeys.add(payloadKey);
+    bufferedAssistantMessageIndex = assistantMessageIndex;
+    coalescer.enqueue(payload);
   };
 
   const enqueue = (payload: ReplyPayload) => {
@@ -197,28 +314,35 @@ export function createBlockReplyPipeline(params: {
       return;
     }
     if (bufferPayload(payload)) {
+      flushBufferedAssistantBlock();
       return;
     }
-    const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
-    if (hasMedia) {
+    // Buffered audio is an ordering boundary, even when voice metadata arrives later.
+    flushBuffered();
+    const reply = resolveSendableOutboundReplyParts(payload);
+    const hasNonTextContent = hasOutboundReplyContent(
+      { ...payload, text: undefined, mediaUrl: undefined, mediaUrls: undefined },
+      { trimText: true },
+    );
+    if (reply.hasMedia && coalescer && !hasNonTextContent) {
+      enqueueCoalescedPayload(payload);
+      return;
+    }
+    if (reply.hasMedia || hasNonTextContent) {
       void coalescer?.flush({ force: true });
-      sendPayload(payload);
+      sendPayload(payload, /* bypassSeenCheck */ false);
       return;
     }
     if (coalescer) {
-      const payloadKey = createBlockReplyPayloadKey(payload);
-      if (seenKeys.has(payloadKey) || pendingKeys.has(payloadKey) || bufferedKeys.has(payloadKey)) {
-        return;
-      }
-      bufferedKeys.add(payloadKey);
-      coalescer.enqueue(payload);
+      enqueueCoalescedPayload(payload);
       return;
     }
-    sendPayload(payload);
+    sendPayload(payload, /* bypassSeenCheck */ false);
   };
 
   const flush = async (options?: { force?: boolean }) => {
     await coalescer?.flush(options);
+    bufferedAssistantMessageIndex = undefined;
     flushBuffered();
     await sendChain;
   };
@@ -227,16 +351,93 @@ export function createBlockReplyPipeline(params: {
     coalescer?.stop();
   };
 
+  const matchingAttempts = (payload: ReplyPayload) => {
+    const index = getReplyPayloadMetadata(payload)?.assistantMessageIndex;
+    return index === undefined
+      ? blockAttemptsByMessage.values()
+      : [blockAttemptsByMessage.get(index) ?? []];
+  };
+  const normalizeSource = (text: string) => text.replace(/\s+/g, "");
+  const matchesSource = (payload: ReplyPayload, attempts: BlockAttempt[]) => {
+    const reply = resolveSendableOutboundReplyParts(payload);
+    return (
+      !reply.hasMedia &&
+      Boolean(reply.trimmedText) &&
+      attempts.length > 0 &&
+      normalizeSource(attempts.map((attempt) => attempt.source).join("")) ===
+        normalizeSource(reply.trimmedText)
+    );
+  };
+
   return {
     enqueue,
     flush,
     stop,
-    hasBuffered: () => Boolean(coalescer?.hasBuffered() || bufferedPayloads.length > 0),
+    hasBuffered: () => coalescer?.hasBuffered() || bufferedPayloads.length > 0,
     didStream: () => didStream,
+    didStreamTerminalReply: () => didStreamTerminalReply,
     isAborted: () => aborted,
-    hasSentPayload: (payload) => {
-      const payloadKey = createBlockReplyPayloadKey(payload);
-      return sentKeys.has(payloadKey);
+    hasSentExactPayload: (payload) =>
+      sentContentKeys.has(createIndexedBlockReplyContentKey(payload)),
+    isFinalPayloadRetryBlocked: (payload) => {
+      const contentKey = createBlockReplyContentKey(payload);
+      const reply = resolveSendableOutboundReplyParts(payload);
+      const text = normalizeSource(reply.trimmedText);
+      const textOnly = !hasOutboundReplyContent({ ...payload, text: undefined });
+      for (const group of matchingAttempts(payload)) {
+        const attempts = group.filter((attempt) => attempt.terminal);
+        const blocked = attempts.filter(hasBlockReplyDeliveryCustody);
+        const sourcePrefix = normalizeSource(attempts.map((attempt) => attempt.source).join(""));
+        if (
+          blocked.some((attempt) => attempt.contentKey === contentKey) ||
+          (textOnly &&
+            blocked.length > 0 &&
+            sourcePrefix.length > 0 &&
+            text.startsWith(sourcePrefix))
+        ) {
+          return true;
+        }
+      }
+      return false;
     },
+    hasSentPayload: (payload) => {
+      const payloadKey = createIndexedBlockReplyContentKey(payload);
+      if (sentContentKeys.has(payloadKey)) {
+        return true;
+      }
+      if (!didStream) {
+        return false;
+      }
+      for (const attempts of matchingAttempts(payload)) {
+        if (
+          matchesSource(
+            payload,
+            attempts.filter(
+              (attempt) => attempt.terminal && attempt.outcome === "delivered" && !attempt.pending,
+            ),
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    },
+    getSentMediaUrls: () => Array.from(sentMediaUrls),
+    hasRetryBlockedDelivery: () =>
+      Array.from(blockAttemptsByMessage.values()).some((attempts) =>
+        attempts.some(hasBlockReplyDeliveryCustody),
+      ),
+    hasRetryBlockedTerminalDelivery: () =>
+      Array.from(blockAttemptsByMessage.values()).some((attempts) =>
+        attempts.some((attempt) => attempt.terminal && hasBlockReplyDeliveryCustody(attempt)),
+      ),
+    getRetryBlockedMediaUrls: () =>
+      Array.from(
+        new Set(
+          Array.from(blockAttemptsByMessage.values()).flatMap((attempts) =>
+            attempts.filter(hasBlockReplyDeliveryCustody).flatMap((attempt) => attempt.mediaUrls),
+          ),
+        ),
+      ),
   };
 }

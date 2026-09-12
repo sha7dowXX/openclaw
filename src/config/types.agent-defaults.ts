@@ -1,264 +1,240 @@
-import type { ChannelId } from "../channels/plugins/types.js";
+// Defines agent default configuration types shared by runtime schemas.
+import type { z } from "zod";
+import type {
+  AgentRuntimePolicyConfig,
+  AgentSandboxConfig,
+  AgentToolModelConfig,
+} from "./types.agents-shared.js";
 import type {
   BlockStreamingChunkConfig,
   BlockStreamingCoalesceConfig,
   HumanDelayConfig,
   TypingMode,
 } from "./types.base.js";
-import type {
-  SandboxBrowserSettings,
-  SandboxDockerSettings,
-  SandboxPruneSettings,
-} from "./types.sandbox.js";
-import type { MemorySearchConfig } from "./types.tools.js";
+import type { AgentDefaultsBaseSchema } from "./zod-schema.agent-defaults-base.js";
+
+type SchemaAgentDefaultsConfig = z.input<typeof AgentDefaultsBaseSchema>;
+
+/** Workspace bootstrap-file injection policy for agent system prompts. */
+export type AgentContextInjection = "always" | "continuation-skip" | "never";
+/**
+ * Optional bootstrap files that setup can skip while still creating required
+ * agent files. "HEARTBEAT.md" stays accepted as legacy config input even
+ * though workspace setup no longer writes it.
+ */
+export type OptionalBootstrapFileName = "SOUL.md" | "USER.md" | "HEARTBEAT.md" | "IDENTITY.md";
+/** Embedded runner behavior contract used by strict-agentic provider flows. */
+export type EmbeddedAgentExecutionContract = "default" | "strict-agentic";
+/** Prompt-only default for how strongly agents should delegate to sub-agents. */
+export type SubagentDelegationMode = "suggest" | "prefer";
+/** Image compression/detail preference used before sending image inputs to models. */
+export type AgentImageQualityPreference = "auto" | "efficient" | "balanced" | "high";
+/** Scope of an interactive model selection when no explicit scope is supplied. */
+export type ModelSelectionScope = "session" | "agent" | "global";
+/** Canonical thinking levels accepted by agent defaults and compaction overrides. */
+export type AgentThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "adaptive"
+  | "max"
+  | "ultra";
 
 export type AgentModelEntryConfig = {
+  /** Optional display/lookup alias for this provider/model entry. */
   alias?: string;
   /** Provider-specific API parameters (e.g., GLM-4.7 thinking mode). */
   params?: Record<string, unknown>;
+  /** Optional agent execution runtime for this specific provider/model entry. */
+  agentRuntime?: AgentRuntimePolicyConfig;
+  /** OpenClaw Code Mode override; omitted inherits the enclosing activation policy. */
+  codeMode?: boolean;
+  /** Enable streaming for this model (default: true, false for Ollama to avoid SDK issue #1205). */
+  streaming?: boolean;
+};
+
+export type AgentModelPolicyConfig = {
+  /** Model refs allowed for session/run overrides. Empty or omitted allows any model. */
+  allow?: string[];
 };
 
 export type AgentModelListConfig = {
+  /** Primary provider/model ref. */
   primary?: string;
+  /** Ordered provider/model fallback refs. */
   fallbacks?: string[];
 };
 
 export type AgentContextPruningConfig = {
+  /** Pruning mode for old tool results in model context. */
   mode?: "off" | "cache-ttl";
   /** TTL to consider cache expired (duration string, default unit: minutes). */
   ttl?: string;
-  keepLastAssistants?: number;
-  softTrimRatio?: number;
-  hardClearRatio?: number;
-  minPrunableToolChars?: number;
   tools?: {
+    /** Tool names eligible for context pruning. */
     allow?: string[];
+    /** Tool names excluded from context pruning. */
     deny?: string[];
   };
-  softTrim?: {
-    maxChars?: number;
-    headChars?: number;
-    tailChars?: number;
-  };
   hardClear?: {
+    /** Replace oversized old tool results with a placeholder at high pressure. */
     enabled?: boolean;
+    /** Placeholder text inserted when a tool result is hard-cleared. */
     placeholder?: string;
   };
 };
 
-export type CliBackendConfig = {
-  /** CLI command to execute (absolute path or on PATH). */
-  command: string;
-  /** Base args applied to every invocation. */
-  args?: string[];
-  /** Output parsing mode (default: json). */
-  output?: "json" | "text" | "jsonl";
-  /** Output parsing mode when resuming a CLI session. */
-  resumeOutput?: "json" | "text" | "jsonl";
-  /** Prompt input mode (default: arg). */
-  input?: "arg" | "stdin";
-  /** Max prompt length for arg mode (if exceeded, stdin is used). */
-  maxPromptArgChars?: number;
-  /** Extra env vars injected for this CLI. */
-  env?: Record<string, string>;
-  /** Env vars to remove before launching this CLI. */
-  clearEnv?: string[];
-  /** Flag used to pass model id (e.g. --model). */
-  modelArg?: string;
-  /** Model aliases mapping (config model id → CLI model id). */
-  modelAliases?: Record<string, string>;
-  /** Flag used to pass session id (e.g. --session-id). */
-  sessionArg?: string;
-  /** Extra args used when resuming a session (use {sessionId} placeholder). */
-  sessionArgs?: string[];
-  /** Alternate args to use when resuming a session (use {sessionId} placeholder). */
-  resumeArgs?: string[];
-  /** When to pass session ids. */
-  sessionMode?: "always" | "existing" | "none";
-  /** JSON fields to read session id from (in order). */
-  sessionIdFields?: string[];
-  /** Flag used to pass system prompt. */
-  systemPromptArg?: string;
-  /** System prompt behavior (append vs replace). */
-  systemPromptMode?: "append" | "replace";
-  /** When to send system prompt. */
-  systemPromptWhen?: "first" | "always" | "never";
-  /** Flag used to pass image paths. */
-  imageArg?: string;
-  /** How to pass multiple images. */
-  imageMode?: "repeat" | "list";
-  /** Serialize runs for this CLI. */
-  serialize?: boolean;
+export type AgentStartupContextConfig = {
+  /** Enable runtime-owned startup-context prelude on bare session resets (default: true). */
+  enabled?: boolean;
+  /** Which bare reset commands should receive startup context (default: ["new", "reset"]). */
+  applyOn?: Array<"new" | "reset">;
+  /** How many dated memory files to load counting backward from today (default: 2). */
+  dailyMemoryDays?: number;
+  /** Max bytes to read from each daily memory file before skipping (default: 16384). */
+  maxFileBytes?: number;
+  /** Max characters retained from each daily memory file (default: 1200). */
+  maxFileChars?: number;
+  /** Max total characters retained across the startup prelude (default: 2800). */
+  maxTotalChars?: number;
 };
 
-export type AgentDefaultsConfig = {
-  /** Primary model and fallbacks (provider/model). */
-  model?: AgentModelListConfig;
-  /** Optional image-capable model and fallbacks (provider/model). */
-  imageModel?: AgentModelListConfig;
-  /** Model catalog with optional aliases (full provider/model keys). */
-  models?: Record<string, AgentModelEntryConfig>;
-  /** Agent working directory (preferred). Used as the default cwd for agent runs. */
-  workspace?: string;
-  /** Optional repository root for system prompt runtime line (overrides auto-detect). */
-  repoRoot?: string;
-  /** Skip bootstrap (BOOTSTRAP.md creation, etc.) for pre-configured deployments. */
-  skipBootstrap?: boolean;
-  /** Max chars for injected bootstrap files before truncation (default: 20000). */
-  bootstrapMaxChars?: number;
-  /** Optional IANA timezone for the user (used in system prompt; defaults to host timezone). */
-  userTimezone?: string;
-  /** Time format in system prompt: auto (OS preference), 12-hour, or 24-hour. */
-  timeFormat?: "auto" | "12" | "24";
-  /**
-   * Envelope timestamp timezone: "utc" (default), "local", "user", or an IANA timezone string.
-   */
+export type AgentContextLimitsConfig = {
+  /** Default max chars returned by memory_get before truncation metadata/notice (default: 12000). */
+  memoryGetMaxChars?: number;
+  /** Max chars retained from post-compaction AGENTS.md context injection (default: 1800). */
+  postCompactionMaxChars?: number;
+};
+
+export type AgentDefaultsConfig = SchemaAgentDefaultsConfig & {
+  /** @deprecated Doctor-only legacy input. */
+  imageGenerationModel?: AgentToolModelConfig;
+  /** @deprecated Doctor-only legacy input. */
+  videoGenerationModel?: AgentToolModelConfig;
+  /** @deprecated Doctor-only legacy input. */
+  musicGenerationModel?: AgentToolModelConfig;
+  /** @deprecated Doctor-only legacy input. */
   envelopeTimezone?: string;
-  /**
-   * Include absolute timestamps in message envelopes ("on" | "off", default: "on").
-   */
+  /** @deprecated Doctor-only legacy input. */
   envelopeTimestamp?: "on" | "off";
-  /**
-   * Include elapsed time in message envelopes ("on" | "off", default: "on").
-   */
+  /** @deprecated Doctor-only legacy input. */
   envelopeElapsed?: "on" | "off";
-  /** Optional context window cap (used for runtime estimates + status %). */
-  contextTokens?: number;
-  /** Optional CLI backends for text-only fallback (claude-cli, etc.). */
-  cliBackends?: Record<string, CliBackendConfig>;
-  /** Opt-in: prune old tool results from the LLM context to reduce token usage. */
-  contextPruning?: AgentContextPruningConfig;
-  /** Compaction tuning and pre-compaction memory flush behavior. */
-  compaction?: AgentCompactionConfig;
-  /** Vector memory search configuration (per-agent overrides supported). */
-  memorySearch?: MemorySearchConfig;
-  /** Default thinking level when no /think directive is present. */
-  thinkingDefault?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  /** Default verbose level when no /verbose directive is present. */
-  verboseDefault?: "off" | "on" | "full";
-  /** Default elevated level when no /elevated directive is present. */
-  elevatedDefault?: "off" | "on" | "ask" | "full";
-  /** Default block streaming level when no override is present. */
-  blockStreamingDefault?: "off" | "on";
+  /** @deprecated Doctor-only legacy input. */
+  timeFormat?: "auto" | "12" | "24";
+  /** @deprecated Doctor-only legacy input. */
+  promptOverlays?: { gpt5?: { personality?: "friendly" | "on" | "off" } };
   /**
-   * Block streaming boundary:
-   * - "text_end": end of each assistant text content block (before tool calls)
-   * - "message_end": end of the whole assistant message (may include tool blocks)
+   * @deprecated Legacy raw config accepted only by doctor/migration repair.
+   * Normal schema parsing rejects this key; use per-model agentRuntime instead.
    */
-  blockStreamingBreak?: "text_end" | "message_end";
-  /** Soft block chunking for streamed replies (min/max chars, prefer paragraph/newline). */
+  agentRuntime?: AgentRuntimePolicyConfig;
+  contextLimits?: AgentContextLimitsConfig;
   blockStreamingChunk?: BlockStreamingChunkConfig;
-  /**
-   * Block reply coalescing (merge streamed chunks before send).
-   * idleMs: wait time before flushing when idle.
-   */
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
-  /** Human-like delay between block replies. */
   humanDelay?: HumanDelayConfig;
-  timeoutSeconds?: number;
-  /** Max inbound media size in MB for agent-visible attachments (text note or future image attach). */
-  mediaMaxMb?: number;
-  typingIntervalSeconds?: number;
-  /** Typing indicator start mode (never|instant|thinking|message). */
   typingMode?: TypingMode;
-  /** Periodic background heartbeat runs. */
   heartbeat?: {
-    /** Heartbeat interval (duration string, default unit: minutes; default: 30m). */
+    agentId?: string;
     every?: string;
-    /** Optional active-hours window (local time); heartbeats run only inside this window. */
     activeHours?: {
-      /** Start time (24h, HH:MM). Inclusive. */
       start?: string;
-      /** End time (24h, HH:MM). Exclusive. Use "24:00" for end-of-day. */
       end?: string;
-      /** Timezone for the window ("user", "local", or IANA TZ id). Default: "user". */
       timezone?: string;
     };
-    /** Heartbeat model override (provider/model). */
     model?: string;
-    /** Session key for heartbeat runs ("main" or explicit session key). */
     session?: string;
-    /** Delivery target ("last", "none", or a channel id). */
-    target?: "last" | "none" | ChannelId;
-    /** Optional delivery override (E.164 for WhatsApp, chat id for Telegram). */
+    target?: string;
+    directPolicy?: "allow" | "block";
     to?: string;
-    /** Override the heartbeat prompt body (default: "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK."). */
+    accountId?: string;
     prompt?: string;
-    /** Max chars allowed after HEARTBEAT_OK before delivery (default: 30). */
-    ackMaxChars?: number;
-    /**
-     * When enabled, deliver the model's reasoning payload for heartbeat runs (when available)
-     * as a separate message prefixed with `Reasoning:` (same as `/reasoning on`).
-     *
-     * Default: false (only the final heartbeat payload is delivered).
-     */
-    includeReasoning?: boolean;
+    timeoutSeconds?: number;
+    lightContext?: boolean;
+    isolatedSession?: boolean;
   };
-  /** Max concurrent agent runs across all conversations. Default: 1 (sequential). */
-  maxConcurrent?: number;
-  /** Sub-agent defaults (spawned via sessions_spawn). */
-  subagents?: {
-    /** Max concurrent sub-agent runs (global lane: "subagent"). Default: 1. */
-    maxConcurrent?: number;
-    /** Auto-archive sub-agent sessions after N minutes (default: 60). */
-    archiveAfterMinutes?: number;
-    /** Default model selection for spawned sub-agents (string or {primary,fallbacks}). */
-    model?: string | { primary?: string; fallbacks?: string[] };
-    /** Default thinking level for spawned sub-agents (e.g. "off", "low", "medium", "high"). */
-    thinking?: string;
-  };
-  /** Optional sandbox settings for non-main sessions. */
-  sandbox?: {
-    /** Enable sandboxing for sessions. */
-    mode?: "off" | "non-main" | "all";
-    /**
-     * Agent workspace access inside the sandbox.
-     * - "none": do not mount the agent workspace into the container; use a sandbox workspace under workspaceRoot
-     * - "ro": mount the agent workspace read-only; disables write/edit tools
-     * - "rw": mount the agent workspace read/write; enables write/edit tools
-     */
-    workspaceAccess?: "none" | "ro" | "rw";
-    /**
-     * Session tools visibility for sandboxed sessions.
-     * - "spawned": only allow session tools to target sessions spawned from this session (default)
-     * - "all": allow session tools to target any session
-     */
-    sessionToolsVisibility?: "spawned" | "all";
-    /** Container/workspace scope for sandbox isolation. */
-    scope?: "session" | "agent" | "shared";
-    /** Legacy alias for scope ("session" when true, "shared" when false). */
-    perSession?: boolean;
-    /** Root directory for sandbox workspaces. */
-    workspaceRoot?: string;
-    /** Docker-specific sandbox settings. */
-    docker?: SandboxDockerSettings;
-    /** Optional sandboxed browser settings. */
-    browser?: SandboxBrowserSettings;
-    /** Auto-prune sandbox containers. */
-    prune?: SandboxPruneSettings;
-  };
+  sandbox?: AgentSandboxConfig;
+};
+export type AgentCompactionMode = "default" | "safeguard";
+export type AgentCompactionPostIndexSyncMode = "off" | "async" | "await";
+export type AgentCompactionIdentifierPolicy = "strict" | "off";
+export type AgentCompactionQualityGuardConfig = {
+  /** Enable compaction summary quality audits and regeneration retries. Default: false. */
+  enabled?: boolean;
+  /** Maximum regeneration retries after a failed quality audit. Default: 1 when enabled. */
+  maxRetries?: number;
 };
 
-export type AgentCompactionMode = "default" | "safeguard";
+export type AgentCompactionMidTurnPrecheckConfig = {
+  /**
+   * Enable structured context pressure checks after tool results are appended
+   * and before the next agent model call. Default: false.
+   */
+  enabled?: boolean;
+};
 
 export type AgentCompactionConfig = {
+  /** Enable embedded proactive auto-compaction. Default: true. */
+  enabled?: boolean;
   /** Compaction summarization mode. */
   mode?: AgentCompactionMode;
-  /** Minimum reserve tokens enforced for Pi compaction (0 disables the floor). */
-  reserveTokensFloor?: number;
-  /** Max share of context window for history during safeguard pruning (0.1–0.9, default 0.5). */
-  maxHistoryShare?: number;
+  /** Thinking level for embedded OpenClaw compaction summaries. Default: low. */
+  thinkingLevel?: AgentThinkingLevel | "inherit";
+  /** Embedded OpenClaw keepRecentTokens budget used for cut-point selection. */
+  keepRecentTokens?: number;
+  /** Preserve this many most-recent user/assistant turns verbatim in compaction summary context. */
+  recentTurnsPreserve?: number;
+  /** Identifier-preservation instruction policy for compaction summaries. */
+  identifierPolicy?: AgentCompactionIdentifierPolicy;
+  /** Optional quality-audit retries for safeguard compaction summaries. */
+  qualityGuard?: AgentCompactionQualityGuardConfig;
+  /** Mid-turn precheck for tool-loop context pressure. Default: disabled. */
+  midTurnPrecheck?: AgentCompactionMidTurnPrecheckConfig;
+  /** Post-compaction session memory index sync mode. */
+  postIndexSync?: AgentCompactionPostIndexSyncMode;
   /** Pre-compaction memory flush (agentic turn). Default: enabled. */
   memoryFlush?: AgentCompactionMemoryFlushConfig;
+  /** H2/H3 section names from AGENTS.md to inject after compaction. */
+  postCompactionSections?: string[];
+  /** Optional provider/model or configured bare alias for compaction summarization.
+   * When set, compaction uses this model instead of the agent's primary model.
+   * Falls back to the primary model when unset. */
+  model?: string;
+  /** Safety window in seconds for each built-in compaction model request (default: 180). */
+  timeoutSeconds?: number;
+  /**
+   * Id of a registered compaction provider plugin.
+   * When set, the provider's summarize() is called instead of
+   * the built-in summarizeInStages(). Falls back to built-in on failure.
+   */
+  provider?: string;
+  /**
+   * Byte threshold for normal preflight local compaction (bytes, or a byte-size
+   * string like "20mb"). Set to 0 or leave unset to disable. Also caps Codex
+   * app-server native rollouts; oversized native threads restart fresh.
+   */
+  maxActiveTranscriptBytes?: number | string;
+  /**
+   * Send brief context-maintenance notices to the user: when compaction starts
+   * and completes, and when a pre-compaction memory flush is exhausted so the
+   * reply continues in a degraded state.
+   * Default: false (silent by default).
+   */
+  notifyUser?: boolean;
 };
 
 export type AgentCompactionMemoryFlushConfig = {
   /** Enable the pre-compaction memory flush (default: true). */
   enabled?: boolean;
+  /** Optional provider/model override used only for pre-compaction memory flush turns. */
+  model?: string;
   /** Run the memory flush when context is within this many tokens of the compaction threshold. */
   softThresholdTokens?: number;
-  /** User prompt used for the memory flush turn (NO_REPLY is enforced if missing). */
-  prompt?: string;
-  /** System prompt appended for the memory flush turn. */
-  systemPrompt?: string;
+  /**
+   * Force a memory flush when transcript size reaches this threshold
+   * (bytes, or byte-size string like "2mb"). Set to 0 to disable.
+   */
+  forceFlushTranscriptBytes?: number | string;
 };
